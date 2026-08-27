@@ -1,0 +1,7 @@
+android/.work/
+android/dist/
+android/*.keystore
+*.apk
+*.apk.idsig
+result
+.direnv
