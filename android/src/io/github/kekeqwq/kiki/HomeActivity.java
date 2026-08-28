@@ -52,16 +52,14 @@ import android.text.TextUtils;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
-import android.widget.AbsListView;
-import android.widget.BaseAdapter;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.ListView;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import java.io.BufferedReader;
@@ -82,8 +80,8 @@ import java.util.Map;
 
 public final class HomeActivity extends Activity {
     static final int HOME = 0, APPS = 1, SET = 2;
-    static final String VER = "1.4";
-    static final String REL = "2026.8.27";
+    static final String VER = "1.6";
+    static final String REL = "2026.8.28";
     static final String[] WK = {"周日", "周一", "周二", "周三", "周四", "周五", "周六"};
     static final int PAPER_L = 0xFFF6F1E8, INK_L = 0xFF1C1B19;
     static final int PAPER_D = 0xFF1C1B19, INK_D = 0xFFF6F1E8;
@@ -100,7 +98,7 @@ public final class HomeActivity extends Activity {
                 }
             };
 
-    int paper, ink, screen, hair, bar, pad, rowH;
+    int paper, ink, screen, hair, drawerHair, bar, pad, rowH, listPx, page, pageSize;
     float density;
     Typeface textFace;
     Bitmap wallpaper;
@@ -108,8 +106,7 @@ public final class HomeActivity extends Activity {
     View home, apps, settings, stack, corner;
     StackNum hour, minute;
     TextView date, cornerTime, cornerDate, appCount, markNone, markPick, wpPathLine, changeLabel;
-    ListView list;
-    AppsAdapter adapter;
+    LinearLayout appPage;
     ColorStateList pressText;
     View changeRow;
     final LinkedHashMap<String, String> conf = new LinkedHashMap<String, String>();
@@ -134,8 +131,7 @@ public final class HomeActivity extends Activity {
     final BroadcastReceiver pkgRx =
             new BroadcastReceiver() {
                 public void onReceive(Context c, Intent i) {
-                    catalog.clear();
-                    if (screen == APPS) loadApps();
+                    if (appPage != null) loadApps();
                 }
             };
 
@@ -148,7 +144,8 @@ public final class HomeActivity extends Activity {
         DisplayMetrics dm = getResources().getDisplayMetrics();
         density = dm.density;
         int width = dm.widthPixels;
-        hair = dp(40);
+        hair = dp(56);
+        drawerHair = Math.max(dp(80), width * 22 / 100);
         bar = dp(3);
         pad = dp(20);
         rowH = dp(50);
@@ -156,9 +153,9 @@ public final class HomeActivity extends Activity {
         palette();
         setContentView(build(width));
         restoreWp();
-        applyHome();
         show(HOME);
         hideUi();
+        listenPkg();
     }
 
     @Override
@@ -169,18 +166,7 @@ public final class HomeActivity extends Activity {
         paintClock();
         schedule();
         clearPress();
-        IntentFilter f = new IntentFilter();
-        f.addAction(Intent.ACTION_PACKAGE_ADDED);
-        f.addAction(Intent.ACTION_PACKAGE_REMOVED);
-        f.addAction(Intent.ACTION_PACKAGE_CHANGED);
-        f.addDataScheme("package");
-        try {
-            getClass()
-                    .getMethod("registerReceiver", BroadcastReceiver.class, IntentFilter.class, int.class)
-                    .invoke(this, pkgRx, f, Integer.valueOf(2));
-        } catch (Exception e) {
-            registerReceiver(pkgRx, f);
-        }
+        if (screen == APPS) loadApps();
     }
 
     @Override
@@ -188,9 +174,30 @@ public final class HomeActivity extends Activity {
         super.onPause();
         clock.removeCallbacks(tick);
         clearPress();
+    }
+
+    @Override
+    protected void onDestroy() {
         try {
             unregisterReceiver(pkgRx);
         } catch (Exception ignored) {
+        }
+        super.onDestroy();
+    }
+
+    void listenPkg() {
+        IntentFilter f = new IntentFilter();
+        f.addAction(Intent.ACTION_PACKAGE_ADDED);
+        f.addAction(Intent.ACTION_PACKAGE_REMOVED);
+        f.addAction(Intent.ACTION_PACKAGE_CHANGED);
+        f.addAction(Intent.ACTION_PACKAGE_REPLACED);
+        f.addDataScheme("package");
+        try {
+            getClass()
+                    .getMethod("registerReceiver", BroadcastReceiver.class, IntentFilter.class, int.class)
+                    .invoke(this, pkgRx, f, Integer.valueOf(2));
+        } catch (Exception e) {
+            registerReceiver(pkgRx, f);
         }
     }
 
@@ -210,10 +217,7 @@ public final class HomeActivity extends Activity {
         palette();
         applyColors();
         applyHome();
-        if (screen == APPS) {
-            catalog.clear();
-            loadApps();
-        }
+        if (screen == APPS) loadApps();
         paintClock();
         eink();
     }
@@ -257,7 +261,6 @@ public final class HomeActivity extends Activity {
         putConf("wallpaper-uri", u.toString());
         saveConf();
         applyConf();
-        applyHome();
         show(HOME);
     }
 
@@ -326,7 +329,9 @@ public final class HomeActivity extends Activity {
         int stackPx = width * 28 / 100;
         int cornerPx = width * 11 / 100;
         int metaPx = Math.max(dp(13), width * 4 / 100);
-        int listPx = Math.max(dp(16), width * 5 / 100);
+        int headPx = Math.max(dp(20), width * 6 / 100);
+        listPx = headPx - dp(2);
+        if (listPx < dp(17)) listPx = dp(17);
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(paper);
@@ -340,7 +345,7 @@ public final class HomeActivity extends Activity {
         home = homePane(stackPx, cornerPx, metaPx);
         root.addView(home, new FrameLayout.LayoutParams(vp(), vp()));
 
-        apps = appsPane(listPx);
+        apps = appsPane(headPx);
         apps.setVisibility(View.GONE);
         root.addView(apps, new FrameLayout.LayoutParams(vp(), vp()));
 
@@ -406,11 +411,11 @@ public final class HomeActivity extends Activity {
                         ViewGroup.LayoutParams.WRAP_CONTENT,
                         Gravity.TOP | Gravity.END));
 
-        box.addView(hairline(APPS, dp(8), dp(36)));
+        box.addView(hairline(APPS, dp(8), dp(36), hair));
         return box;
     }
 
-    View appsPane(int listPx) {
+    View appsPane(int headPx) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setBackgroundColor(paper);
@@ -418,11 +423,12 @@ public final class HomeActivity extends Activity {
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(Gravity.CENTER_VERTICAL);
-        head.setPadding(pad, dp(32), pad, dp(18));
+        head.setPadding(pad, dp(32), pad, dp(22));
 
-        TextView appsLbl = body(listPx);
-        appsLbl.setText("APPS");
-        appsLbl.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        TextView appsLbl = body(headPx);
+        appsLbl.setText("我的应用");
+        appsLbl.setTypeface(textFace, Typeface.BOLD);
+        appsLbl.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams side = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
         head.addView(appsLbl, side);
 
@@ -430,53 +436,22 @@ public final class HomeActivity extends Activity {
         mid.setBackgroundColor(ink);
         mid.setTag("h");
         FrameLayout hit = new FrameLayout(this);
-        hit.setPadding(dp(12), dp(14), dp(12), dp(14));
-        hit.setClickable(true);
-        hit.setOnClickListener(
-                new View.OnClickListener() {
-                    public void onClick(View v) {
-                        show(HOME);
-                    }
-                });
-        hit.addView(mid, new FrameLayout.LayoutParams(hair, bar, Gravity.CENTER));
+        hit.setPadding(dp(16), dp(16), dp(16), dp(16));
+        wireBar(hit, HOME, false);
+        hit.addView(mid, new FrameLayout.LayoutParams(drawerHair, bar, Gravity.CENTER));
         head.addView(hit, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        appCount = body(listPx);
-        appCount.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        appCount = body(headPx);
+        appCount.setTypeface(textFace, Typeface.BOLD);
+        appCount.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
         head.addView(appCount, side);
         box.addView(head, new LinearLayout.LayoutParams(vp(), ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        adapter = new AppsAdapter(listPx);
-        list = new ListView(this);
-        list.setAdapter(adapter);
-        list.setDivider(null);
-        list.setDividerHeight(0);
-        list.setSelector(new ColorDrawable(Color.TRANSPARENT));
-        list.setChoiceMode(ListView.CHOICE_MODE_NONE);
-        list.setItemsCanFocus(false);
-        list.setVerticalScrollBarEnabled(false);
-        list.setHorizontalScrollBarEnabled(false);
-        list.setOverScrollMode(View.OVER_SCROLL_NEVER);
-        list.setScrollingCacheEnabled(false);
-        list.setAnimationCacheEnabled(false);
-        list.setFadingEdgeLength(0);
-        list.setCacheColorHint(Color.TRANSPARENT);
-        list.setSoundEffectsEnabled(false);
-        list.setHapticFeedbackEnabled(false);
-        list.setOnItemClickListener(
-                new android.widget.AdapterView.OnItemClickListener() {
-                    public void onItemClick(android.widget.AdapterView<?> p, View v, int pos, long id) {
-                        launch(catalog.get(pos));
-                    }
-                });
-        list.setOnItemLongClickListener(
-                new android.widget.AdapterView.OnItemLongClickListener() {
-                    public boolean onItemLongClick(android.widget.AdapterView<?> p, View v, int pos, long id) {
-                        show(SET);
-                        return true;
-                    }
-                });
-        box.addView(list, new LinearLayout.LayoutParams(vp(), 0, 1));
+        PageHost host = new PageHost();
+        appPage = new LinearLayout(this);
+        appPage.setOrientation(LinearLayout.VERTICAL);
+        host.addView(appPage, new FrameLayout.LayoutParams(vp(), vp()));
+        box.addView(host, new LinearLayout.LayoutParams(vp(), 0, 1));
         return box;
     }
 
@@ -636,23 +611,52 @@ public final class HomeActivity extends Activity {
         return t;
     }
 
-    View hairline(final int dest, int top, int bottom) {
+    View hairline(final int dest, int top, int bottom, int len) {
         LinearLayout wrap = new LinearLayout(this);
         wrap.setGravity(Gravity.CENTER);
         wrap.setPadding(0, top, 0, bottom);
-        wrap.setClickable(true);
-        wrap.setOnClickListener(
+        wireBar(wrap, dest, true);
+        View v = new View(this);
+        v.setBackgroundColor(ink);
+        v.setTag("h");
+        wrap.addView(v, new LinearLayout.LayoutParams(len, bar));
+        return wrap;
+    }
+
+    void wireBar(View hit, final int dest, boolean hold) {
+        hit.setClickable(true);
+        hit.setOnClickListener(
                 new View.OnClickListener() {
                     public void onClick(View v) {
                         show(dest);
                     }
                 });
-        wrap.setOnLongClickListener(toSet);
-        View v = new View(this);
-        v.setBackgroundColor(ink);
-        v.setTag("h");
-        wrap.addView(v, new LinearLayout.LayoutParams(hair, bar));
-        return wrap;
+        if (hold) hit.setOnLongClickListener(toSet);
+        hit.setOnTouchListener(
+                new View.OnTouchListener() {
+                    float y0;
+
+                    public boolean onTouch(View v, MotionEvent e) {
+                        int a = e.getActionMasked();
+                        if (a == MotionEvent.ACTION_DOWN) {
+                            y0 = e.getRawY();
+                            return false;
+                        }
+                        if (a == MotionEvent.ACTION_UP) {
+                            float dy = e.getRawY() - y0;
+                            int t = dp(28);
+                            if (dest == APPS && dy < -t) {
+                                show(APPS);
+                                return true;
+                            }
+                            if (dest == HOME && dy > t) {
+                                show(HOME);
+                                return true;
+                            }
+                        }
+                        return false;
+                    }
+                });
     }
 
     void show(int s) {
@@ -662,7 +666,7 @@ public final class HomeActivity extends Activity {
         apps.setVisibility(s == APPS ? View.VISIBLE : View.GONE);
         settings.setVisibility(s == SET ? View.VISIBLE : View.GONE);
         if (s == APPS) {
-            if (catalog.isEmpty()) loadApps();
+            loadApps();
             clearPress();
         }
         if (s == SET) paintMarks();
@@ -686,7 +690,7 @@ public final class HomeActivity extends Activity {
     void applyColors() {
         View root = findViewById(android.R.id.content);
         if (root != null) root.setBackgroundColor(paper);
-        home.setBackgroundColor(hasWp() ? Color.TRANSPARENT : paper);
+        home.setBackgroundColor(wallpaper != null ? Color.TRANSPARENT : paper);
         apps.setBackgroundColor(paper);
         settings.setBackgroundColor(paper);
         hour.recolor();
@@ -698,12 +702,8 @@ public final class HomeActivity extends Activity {
         tintTree(home);
         tintTree(apps);
         tintTree(settings);
-        if (adapter != null) adapter.notifyDataSetChanged();
+        if (screen == APPS) fillPage();
         paintMarks();
-    }
-
-    boolean hasWp() {
-        return wallpaper != null;
     }
 
     void tintTree(View v) {
@@ -772,8 +772,79 @@ public final class HomeActivity extends Activity {
                         return col.compare(a.name, b.name);
                     }
                 });
-        appCount.setText(Integer.toString(catalog.size()));
-        adapter.notifyDataSetChanged();
+        appCount.setText("共" + catalog.size() + "个");
+        page = 0;
+        layoutPages();
+    }
+
+    void layoutPages() {
+        if (appPage == null) return;
+        appPage.post(
+                new Runnable() {
+                    public void run() {
+                        View parent = (View) appPage.getParent();
+                        int h = parent != null ? parent.getHeight() : 0;
+                        if (h < rowH) h = rowH;
+                        pageSize = Math.max(1, h / rowH);
+                        int pages = pageCount();
+                        if (page >= pages) page = pages - 1;
+                        if (page < 0) page = 0;
+                        fillPage();
+                    }
+                });
+    }
+
+    int pageCount() {
+        if (pageSize < 1) return 1;
+        int n = (catalog.size() + pageSize - 1) / pageSize;
+        return n < 1 ? 1 : n;
+    }
+
+    void fillPage() {
+        if (appPage == null) return;
+        appPage.removeAllViews();
+        if (pageSize < 1) return;
+        int start = page * pageSize;
+        int end = Math.min(catalog.size(), start + pageSize);
+        for (int i = start; i < end; i++) {
+            appPage.addView(appRow(catalog.get(i)));
+        }
+        eink();
+    }
+
+    View appRow(final App app) {
+        TextView t = body(listPx);
+        t.setText(app.name);
+        t.setGravity(Gravity.CENTER);
+        t.setMinHeight(rowH);
+        t.setClickable(true);
+        t.setSoundEffectsEnabled(false);
+        t.setHapticFeedbackEnabled(false);
+        t.setTextColor(pressText);
+        t.setBackground(pressBg());
+        t.setOnClickListener(
+                new View.OnClickListener() {
+                    public void onClick(View v) {
+                        launch(app);
+                    }
+                });
+        t.setOnLongClickListener(toSet);
+        t.setLayoutParams(new LinearLayout.LayoutParams(vp(), rowH));
+        return t;
+    }
+
+    void nextPage() {
+        if (page + 1 < pageCount()) {
+            page++;
+            fillPage();
+        }
+    }
+
+    void prevPage() {
+        if (page > 0) {
+            page--;
+            fillPage();
+        }
     }
 
     void launch(App app) {
@@ -790,23 +861,15 @@ public final class HomeActivity extends Activity {
     }
 
     void clearPress() {
-        if (list == null) return;
-        list.setPressed(false);
-        list.clearChoices();
-        list.setSelector(new ColorDrawable(Color.TRANSPARENT));
-        int n = list.getChildCount();
+        if (appPage == null) return;
+        int n = appPage.getChildCount();
         for (int i = 0; i < n; i++) {
-            View v = list.getChildAt(i);
+            View v = appPage.getChildAt(i);
             v.setPressed(false);
             v.setSelected(false);
             v.setActivated(false);
             v.refreshDrawableState();
-            if (v instanceof TextView) {
-                ((TextView) v).setTextColor(ink);
-                v.setBackground(pressBg());
-            }
         }
-        if (adapter != null) adapter.notifyDataSetChanged();
     }
 
     void pickWallpaper() {
@@ -934,7 +997,13 @@ public final class HomeActivity extends Activity {
         recycleWp();
         wpTries = 0;
         clock.removeCallbacks(wpRetry);
-        if (wpOn) tryWp();
+        if (wpOn) {
+            try {
+                loadWallpaper();
+            } catch (Exception e) {
+                tryWp();
+            }
+        }
         applyHome();
         paintMarks();
     }
@@ -1095,12 +1164,6 @@ public final class HomeActivity extends Activity {
         throw new IllegalStateException();
     }
 
-    void dropWp() {
-        putConf("wallpaper", "off");
-        saveConf();
-        applyConf();
-    }
-
     void recycleWp() {
         if (wallpaper != null) {
             wallpaper.recycle();
@@ -1173,6 +1236,42 @@ public final class HomeActivity extends Activity {
 
     static int vp() {
         return ViewGroup.LayoutParams.MATCH_PARENT;
+    }
+
+    final class PageHost extends FrameLayout {
+        float y0;
+        boolean steal;
+
+        PageHost() {
+            super(HomeActivity.this);
+        }
+
+        public boolean onInterceptTouchEvent(MotionEvent e) {
+            int a = e.getActionMasked();
+            if (a == MotionEvent.ACTION_DOWN) {
+                y0 = e.getY();
+                steal = false;
+                return false;
+            }
+            if (a == MotionEvent.ACTION_MOVE) {
+                if (!steal && Math.abs(e.getY() - y0) > dp(28)) {
+                    steal = true;
+                    return true;
+                }
+                return steal;
+            }
+            return steal;
+        }
+
+        public boolean onTouchEvent(MotionEvent e) {
+            if (e.getActionMasked() == MotionEvent.ACTION_UP) {
+                float dy = e.getY() - y0;
+                int t = dp(28);
+                if (dy < -t) nextPage();
+                else if (dy > t) prevPage();
+            }
+            return true;
+        }
     }
 
     static final class App {
@@ -1248,44 +1347,6 @@ public final class HomeActivity extends Activity {
         void drawInk(Canvas c, String s, float left, float baseline) {
             p.getTextBounds(s, 0, 1, box);
             c.drawText(s, left + (cell - box.width()) / 2f - box.left, baseline, p);
-        }
-    }
-
-    final class AppsAdapter extends BaseAdapter {
-        final int textPx;
-
-        AppsAdapter(int textPx) {
-            this.textPx = textPx;
-        }
-
-        public int getCount() {
-            return catalog.size();
-        }
-
-        public Object getItem(int i) {
-            return catalog.get(i);
-        }
-
-        public long getItemId(int i) {
-            return i;
-        }
-
-        public View getView(int i, View convert, ViewGroup parent) {
-            TextView t;
-            if (convert instanceof TextView) {
-                t = (TextView) convert;
-            } else {
-                t = body(textPx);
-                t.setGravity(Gravity.CENTER);
-                t.setLayoutParams(new AbsListView.LayoutParams(vp(), rowH));
-            }
-            t.setPressed(false);
-            t.setSelected(false);
-            t.setActivated(false);
-            t.setText(catalog.get(i).name);
-            t.setTextColor(pressText);
-            t.setBackground(pressBg());
-            return t;
         }
     }
 }

@@ -32,8 +32,8 @@ mkdir -p "$WORK/flat" "$WORK/gen" "$WORK/classes" "$WORK/dex" "$OUT"
   --custom-package io.github.kekeqwq.kiki \
   --min-sdk-version 24 \
   --target-sdk-version 34 \
-  --version-code 5 \
-  --version-name 1.4 \
+  --version-code 7 \
+  --version-name 1.6 \
   --auto-add-overlay \
   --no-proguard-location-reference \
   "$WORK/res.zip"

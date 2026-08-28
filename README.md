@@ -5,8 +5,8 @@
 | | |
 |---|---|
 | 包名 | `io.github.kekeqwq.kiki` |
-| 版本 | 1.4（2026.8.27） |
-| 版本号 | 5 |
+| 版本 | 1.6（2026.8.28） |
+| 版本号 | 7 |
 | 系统 | Android 7.0+（API 24），目标 API 34 |
 | 体积 | 已签名 APK 约 24 KB |
 | 许可 | GPL-3.0-or-later |
@@ -26,6 +26,28 @@ adb install -r kiki.apk
 按 Home 键，在系统弹窗里把 **Kiki** 设为默认桌面。以后按 Home 都会回到 Kiki。
 
 若要卸掉默认桌面，到系统设置 → 应用 → 默认应用 → 桌面，改回原来的启动器，再卸载 Kiki。
+
+### 从 1.4 升级
+
+仓库根目录：
+
+```bash
+git apply kiki-1.4-to-1.6.patch
+nix build
+adb install -r result/kiki.apk
+```
+
+`versionCode` 从 5 升到 7，系统会当成正式升级。壁纸配置还在。
+
+若 `adb install -r` 报签名不一致：两次构建用了不同 keystore。先卸载再装，壁纸要重新选。以后把 `android/kiki.keystore` 留在仓库里（或自己换一把长期密钥），覆盖安装才不会断。
+
+`git apply` 若只在 `flake.nix` 冲突（已经改过 androidenv），跳过它：
+
+```bash
+git apply --exclude=flake.nix kiki-1.4-to-1.6.patch
+```
+
+然后把 `flake.nix` 里的 `version = "1.4"` 改成 `"1.6"`。
 
 ### 主屏
 
@@ -48,12 +70,13 @@ adb install -r kiki.apk
 
 ### 手势
 
-全部是点击或长按，没有滑动。
+全部是点击或长按；两条横线另外支持滑动。
 
 | 动作 | 效果 |
 |---|---|
-| 点主屏底部短线 | 打开应用列表 |
-| 点列表顶部短线 | 回到主屏 |
+| 点主屏底部短线，或上滑短线 | 打开应用列表 |
+| 点列表顶部短线，或下滑短线 | 回到主屏 |
+| 列表上滑 / 下滑 | 下一页 / 上一页 |
 | 点应用名 | 启动该应用 |
 | 长按主屏空白、短线、或应用名 | 打开设置 |
 | 系统返回键 / Home 键 | 回到主屏 |
@@ -62,8 +85,10 @@ adb install -r kiki.apk
 
 ### 应用列表
 
-- 顶栏：左边 `APPS`，中间短线，右边安装数量
-- 应用名按系统标签排序，中英跟系统语言
+- 顶栏：左边「我的应用」，中间较长横线，右边「共 N 个」。标题加粗加大。
+- 应用名字号比标题略小。
+- 每次打开都重新扫描已装应用，装、卸之后立刻反映。
+- 一屏装不下时翻页，不上滑像素滚动。列表上滑下一页，下滑上一页。
 - 无图标、无字母轨、无搜索、无滚动条、无分割线
 - 名字居中
 
@@ -166,7 +191,7 @@ nix build
 # 产物 result/kiki.apk
 ```
 
-第一次会拉 Android build-tools 34 和 android-34 platform，之后走 Nix 缓存。
+第一次会经 nixpkgs 的 `androidenv` 拉 build-tools 34 和 android-34，没有模拟器、没有 NDK。SDK 是 unfree，flake 里已经勾了许可。
 
 开发壳：
 

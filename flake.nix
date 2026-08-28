@@ -30,7 +30,7 @@
 
       kiki = pkgs.stdenvNoCC.mkDerivation {
         pname = "kiki";
-        version = "1.4";
+        version = "1.6";
         src = pkgs.lib.cleanSourceWith {
           src = ./android;
           filter = path: type:
